@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spark Control System</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        div {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 150px;
+            text-align: left;
+            margin-right: 10px;
+            color: #555;
+        }
+        input[type="password"],
+        select {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #wifi-message {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        .info {
+            color: orange;
+        }
+        .ip-address {
+            color: blue;
+        }
+        #camera-feed {
+            width: 640px;
+            height: 480px;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+            background-color: #eee;
+            display: block;
+        }
+        #camera-status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .status-high {
+            color: green;
+        }
+        .status-low {
+            color: red;
+        }
+        .success-message {
+            color: green;
+            font-weight: bold;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+        }
+        #speaker-status {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Raspberry Pi Control</h1>
+
+    <section id="wifi-section">
+        <h2>Wi-Fi Control</h2>
+        <div>
+            <label for="wifi-ssid">Available Networks:</label>
+            <input type="text" id="wifi-ssid">
+        </div>
+        <div>
+            <label for="wifi-password">Password:</label>
+            <input type="password" id="wifi-password">
+            <button id="wifi-connect-btn">Connect</button>
+        </div>
+        <div id="wifi-message" class="info"></div>
+    </section>
+
+    <section id="camera-section">
+        <h2>Camera Control</h2>
+        <div>
+            <button id="camera-test-btn">Start Camera</button>
+            <button id="camera-stop-btn" hidden>Stop Camera</button>
+        </div>
+        <p id="camera-status">Camera is inactive</p>
+        <img id="camera-feed" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Camera Feed">
+    </section>
+
+    <section id="speaker-section">
+        <h2>Speaker Control</h2>
+        <div>
+            <button id="speaker-test-btn">Play Test Sound</button>
+            <button id="speaker-stop-btn">Stop Audio</button>
+        </div>
+        <p id="speaker-status" class="status">Speaker is inactive</p>
+    </section>
+
+    <script>
+        const websocket = new WebSocket('ws://' + window.location.hostname + ':8766');
+        let reconnectTimer;
+
+        websocket.onopen = () => {
+            console.log("WebSocket connected");
+            clearTimeout(reconnectTimer);
+            document.getElementById('camera-status').textContent = "WebSocket connected";
+        };
+
+        websocket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                switch (data.type) {
+                    case 'ip_address':
+                        const messageDiv = document.getElementById('wifi-message');
+                        messageDiv.textContent = `Raspberry Pi IP: ${data.ip}`;
+                        messageDiv.className = 'ip-address';
+                        break;
+                    case 'camera_frame':
+                        document.getElementById('camera-feed').src = 'data:image/jpeg;base64,' + data.frame;
+                        break;
+                    case 'camera_status':
+                        const statusElement = document.getElementById('camera-status');
+                        statusElement.textContent = data.message;
+                        statusElement.className = data.message.includes("error") || data.message.includes("disconnected") ? 'error-message' : '';
+                        break;
+                    case 'speaker_status':
+                        const speakerStatusElement = document.getElementById('speaker-status');
+                        speakerStatusElement.textContent = data.message;
+                        speakerStatusElement.className = data.message.includes("Error") ||
+                                                     data.message.includes("failed") ||
+                                                     data.message.includes("not found") ? 'error-message' :
+                                                     data.message.includes("Finished") ||
+                                                     data.message.includes("connected") ? 'success-message' : '';
+                        break;
+                    default:
+                        console.log("Received unknown message type:", data);
+                }
+            } catch (error) {
+                console.error("Error processing WebSocket message:", error);
+            }
+        };
+
+        websocket.onclose = () => {
+            console.log("WebSocket disconnected");
+            document.getElementById('camera-status').textContent = "WebSocket disconnected. Reconnecting...";
+            reconnectTimer = setTimeout(() => {
+                websocket = new WebSocket('ws://' + window.location.hostname + ':8766');
+                setupWebSocketEventListeners(); // Re-attach event listeners
+            }, 5000);
+        };
+
+        websocket.onerror = (error) => {
+            console.error("WebSocket error:", error);
+        };
+
+        function setupWebSocketEventListeners() {
+            websocket.onopen = websocket.onopen;
+            websocket.onmessage = websocket.onmessage;
+            websocket.onclose = websocket.onclose;
+            websocket.onerror = websocket.onerror;
+        }
+
+        document.getElementById('wifi-connect-btn').addEventListener('click', () => {
+            const ssid = document.getElementById('wifi-ssid').value;
+            const password = document.getElementById('wifi-password').value;
+            const messageDiv = document.getElementById('wifi-message');
+
+            messageDiv.textContent = "Attempting to connect...";
+            messageDiv.className = 'info';
+
+            fetch('/wifi/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ssid, password })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errData => {
+                        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                messageDiv.textContent = data.message;
+                messageDiv.className = data.success ? 'success' : 'error';
+            })
+            .catch(error => {
+                console.error('Error connecting to Wi-Fi:', error);
+                messageDiv.textContent = error.message || 'Failed to connect to Wi-Fi.';
+                messageDiv.className = 'error';
+            });
+        });
+
+        // Camera Control - Start
+        document.getElementById('camera-test-btn').addEventListener('click', () => {
+            const startBtn = document.getElementById('camera-test-btn');
+            const statusElement = document.getElementById('camera-status');
+
+            startBtn.disabled = true;
+            statusElement.textContent = "Starting camera...";
+
+            fetch('/camera/test')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusElement.textContent = data.status;
+                        // WebSocket will start receiving frames
+                    } else {
+                        statusElement.textContent = "Error: " + (data.error || "Failed to start camera");
+                        console.error("Camera start error:", data.error);
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = "Error connecting to camera service";
+                    console.error("Camera fetch error:", error);
+                })
+                .finally(() => {
+                    startBtn.disabled = false;
+                });
+        });
+
+        // Camera Control - Stop
+        document.getElementById('camera-stop-btn').addEventListener('click', () => {
+            const stopBtn = document.getElementById('camera-stop-btn');
+            const statusElement = document.getElementById('camera-status');
+
+            stopBtn.disabled = true;
+            statusElement.textContent = "Stopping camera...";
+
+            fetch('/camera/stop')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusElement.textContent = data.status;
+                        // Clear the image
+                        document.getElementById('camera-feed').src = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+                    } else {
+                        statusElement.textContent = "Error: " + (data.error || "Failed to stop camera");
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = "Error connecting to camera service";
+                    console.error("Camera stop error:", error);
+                })
+                .finally(() => {
+                    stopBtn.disabled = false;
+                });
+        });
+
+        // Speaker Control - Play Test Sound
+        document.getElementById('speaker-test-btn').addEventListener('click', () => {
+            const testBtn = document.getElementById('speaker-test-btn');
+            const statusElement = document.getElementById('speaker-status');
+
+            testBtn.disabled = true;
+            statusElement.textContent = "Starting audio playback...";
+
+            fetch('/speaker/test')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusElement.textContent = data.status;
+                        statusElement.className = '';
+                    } else {
+                        statusElement.textContent = "Error: " + (data.error || "Failed to play audio");
+                        statusElement.className = 'error-message';
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = "Error connecting to audio service";
+                    statusElement.className = 'error-message';
+                    console.error("Audio play error:", error);
+                })
+                .finally(() => {
+                    testBtn.disabled = false;
+                });
+        });
+        
+        // stop speacker
+        document.getElementById('speaker-stop-btn').addEventListener('click', () => {
+    const stopBtn = document.getElementById('speaker-stop-btn');
+    const statusElement = document.getElementById('speaker-status');
+    
+    stopBtn.disabled = true;
+    statusElement.textContent = "Stopping audio...";
+    
+    fetch('/speaker/stop')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusElement.textContent = data.status;
+                statusElement.className = '';
+            } else {
+                statusElement.textContent = "Error: " + (data.error || "Failed to stop audio");
+                statusElement.className = 'error-message';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = "Error connecting to audio service";
+            statusElement.className = 'error-message';
+            console.error("Audio stop error:", error);
+        })
+        .finally(() => {
+            stopBtn.disabled = false;
+        });
+});
+    </script>
+</body>
+</html>

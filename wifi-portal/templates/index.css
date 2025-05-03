@@ -1,0 +1,54 @@
+ body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        div {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 150px;
+            text-align: left;
+            margin-right: 10px;
+            color: #555;
+        }
+        select, input[type="password"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #wifi-message {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        .info {
+            color: orange;
+        }
+        .ip-address {
+            color: blue;
+        }

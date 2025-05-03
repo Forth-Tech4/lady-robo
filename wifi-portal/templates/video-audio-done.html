@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Raspberry Pi Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        select, input, button {
+            padding: 8px;
+            margin: 5px;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        #camera-feed {
+            width: 640px;
+            height: 480px;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+            background-color: #eee;
+            display: block;
+        }
+        
+        .status {
+            font-weight: bold;
+        }
+        
+        .status-high {
+            color: green;
+        }
+        
+        .status-low {
+            color: red;
+        }
+        
+        .success-message {
+            color: green;
+            font-weight: bold;
+        }
+        
+        .error-message {
+            color: red;
+            font-weight: bold;
+        }
+        
+        .wifi-signal {
+            display: inline-block;
+            width: 50px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <section id="wifi-section">
+        <h1>Wi-Fi Control</h1>
+        <p>Select a network and enter password to connect:</p>
+        <div>
+            <select id="wifi-list">
+                <option value="">Loading networks...</option>
+            </select>
+            <button id="wifi-scan-btn">Refresh</button>
+        </div>
+        <div>
+            <input type="password" id="wifi-password" placeholder="Password">
+            <button id="wifi-connect-btn">Connect</button>
+        </div>
+        <div id="wifi-message" style="margin-top: 10px;"></div>
+    </section>
+    
+    <section id="gpio-section">
+        <h1>GPIO Control</h1>
+        <p>GPIO Status: <span id="gpio-status" class="status">Loading...</span></p>
+        <button id="gpio-toggle-btn">Toggle GPIO</button>
+    </section>
+    
+    <section id="camera-section">
+        <h1>Camera Control</h1>
+        <div>
+            <button id="camera-test-btn">Start Camera</button>
+            <button id="camera-stop-btn">Stop Camera</button>
+        </div>
+        <p id="camera-status">Camera is inactive</p>
+        <img id="camera-feed" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="Camera Feed">
+    </section>
+    
+    <section id="speaker-section">
+    <h1>Speaker Control</h1>
+    <div>
+        <button id="speaker-check-btn">Check Audio</button>
+        <button id="speaker-test-btn">Play Test Sound</button>
+        <button id="speaker-stop-btn">Stop Audio</button>
+    </div>
+    <div id="audio-files-container" style="margin-top: 10px; display: none;">
+        <p>Available audio files:</p>
+        <select id="audio-files-list">
+            <option value="">No files found</option>
+        </select>
+        <button id="play-selected-btn">Play Selected</button>
+    </div>
+    <p id="speaker-status" class="status">Speaker is inactive</p>
+</section>
+    
+    <script>
+        // WebSocket setup
+        let socket;
+        let reconnectTimer;
+        const hostname = window.location.hostname || 'localhost';
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${hostname}:8765`;
+        
+        function setupWebSocket() {
+            // Close any existing connection
+            if (socket && socket.readyState !== WebSocket.CLOSED) {
+                socket.close();
+            }
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                console.log("WebSocket connected");
+                clearTimeout(reconnectTimer);
+                document.getElementById('camera-status').textContent = "WebSocket connected";
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    
+                    if (message.type === 'camera_frame') {
+                        document.getElementById('camera-feed').src = 'data:image/jpeg;base64,' + message.frame;
+                    }
+                    // Socket message handler - Add this to handle speaker status messages
+else if (message.type === 'speaker_status') {
+    const statusElement = document.getElementById('speaker-status');
+    statusElement.textContent = message.message;
+    
+    if (message.message.includes("Error") || 
+        message.message.includes("failed") || 
+        message.message.includes("not found")) {
+        statusElement.className = 'error-message';
+    } else if (message.message.includes("Finished") || 
+               message.message.includes("connected")) {
+        statusElement.className = 'success-message';
+    } else {
+        statusElement.className = '';
+    }
+}
+                    else if(message.type === 'camera_status'){
+						// Handle camera status messages
+            const statusElement = document.getElementById('camera-status');
+            statusElement.textContent = message.message;
+            if (message.message.includes("error") || message.message.includes("disconnected")) {
+                statusElement.className = 'error-message';
+            }
+						}
+                    else if (message.type === 'ip_address') {
+                        const wifiMessage = document.getElementById('wifi-message');
+                        wifiMessage.innerHTML = `Connected successfully! New IP: <strong>${message.ip}</strong>`;
+                        wifiMessage.className = 'success-message';
+                    }
+                } catch (e) {
+                    console.error("Error processing WebSocket message:", e);
+                }
+            };
+            
+            socket.onclose = () => {
+                console.log("WebSocket disconnected");
+                // Try to reconnect after 5 seconds
+                reconnectTimer = setTimeout(setupWebSocket, 5000);
+                document.getElementById('camera-status').textContent = "WebSocket disconnected. Reconnecting...";
+            };
+            
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+        }
+        
+        // Initialize WebSocket connection
+        setupWebSocket();
+        
+        // Wi-Fi Scan and Connect
+        function scanWifiNetworks() {
+            const select = document.getElementById('wifi-list');
+            select.innerHTML = '<option value="">Loading networks...</option>';
+            
+            fetch('/wifi/scan')
+                .then(res => res.json())
+                .then(data => {
+                    select.innerHTML = '';
+                    
+                    if (!data.success || !data.networks || data.networks.length === 0) {
+                        const option = document.createElement('option');
+                        option.value = "";
+                        option.textContent = "No networks found";
+                        select.appendChild(option);
+                        return;
+                    }
+                    
+                    data.networks.forEach(network => {
+                        const option = document.createElement('option');
+                        option.value = network.ssid;
+                        
+                        // Convert signal strength to bars (typically in dBm, ranging from -30 to -90)
+                        const signalStrength = network.signal || -75; // Default to medium-low if not provided
+                        let signalBars = "▂▄▆█"; // Unicode block characters for signal bars
+                        let numBars;
+                        
+                        if (signalStrength > -55) numBars = 4;       // Excellent: -30 to -55 dBm
+                        else if (signalStrength > -65) numBars = 3;  // Good: -55 to -65 dBm
+                        else if (signalStrength > -75) numBars = 2;  // Fair: -65 to -75 dBm
+                        else numBars = 1;                           // Poor: -75 dBm or less
+                        
+                        option.textContent = `${network.ssid} ${signalBars.substring(4-numBars)}`;
+                        select.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error("Error scanning networks:", error);
+                    select.innerHTML = '<option value="">Error scanning</option>';
+                });
+        }
+        
+        // Initial scan
+        scanWifiNetworks();
+        
+        // Refresh Wi-Fi list
+        document.getElementById('wifi-scan-btn').addEventListener('click', scanWifiNetworks);
+        
+        // Connect to Wi-Fi
+        document.getElementById('wifi-connect-btn').addEventListener('click', () => {
+            const ssid = document.getElementById('wifi-list').value;
+            const password = document.getElementById('wifi-password').value;
+            const messageDiv = document.getElementById('wifi-message');
+            const connectBtn = document.getElementById('wifi-connect-btn');
+            
+            if (!ssid) {
+                messageDiv.textContent = "Please select a network";
+                messageDiv.className = 'error-message';
+                return;
+            }
+            
+            // Disable the button during connection attempt
+            connectBtn.disabled = true;
+            connectBtn.textContent = "Connecting...";
+            messageDiv.textContent = "Attempting to connect...";
+            messageDiv.className = '';
+            
+            fetch('/wifi/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ssid, password })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    messageDiv.innerHTML = `Connecting to <strong>${ssid}</strong>... Please wait`;
+                    messageDiv.className = 'success-message';
+                    
+                    // WebSocket will notify when the connection is complete
+                    // and provide the new IP address
+                } else {
+                    messageDiv.textContent = data.error || "Connection failed";
+                    messageDiv.className = 'error-message';
+                }
+            })
+            .catch(error => {
+                console.error("Error connecting to Wi-Fi:", error);
+                messageDiv.textContent = "Connection error. Check your console for details.";
+                messageDiv.className = 'error-message';
+            })
+            .finally(() => {
+                // Re-enable the button
+                connectBtn.disabled = false;
+                connectBtn.textContent = "Connect";
+            });
+        });
+        
+        // GPIO Control
+        function updateGpioStatus() {
+            fetch('/gpio/status')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const statusElement = document.getElementById('gpio-status');
+                        const isHigh = data.status;
+                        statusElement.textContent = isHigh ? 'HIGH' : 'LOW';
+                        statusElement.className = isHigh ? 'status status-high' : 'status status-low';
+                    }
+                })
+                .catch(error => {
+                    console.error("Error updating GPIO status:", error);
+                });
+        }
+        
+        // Initial GPIO status
+        updateGpioStatus();
+        
+        // Update GPIO status every 2 seconds
+        setInterval(updateGpioStatus, 2000);
+        
+        // Toggle GPIO
+        document.getElementById('gpio-toggle-btn').addEventListener('click', () => {
+            const btn = document.getElementById('gpio-toggle-btn');
+            btn.disabled = true;
+            btn.textContent = "Toggling...";
+            
+            fetch('/gpio/toggle', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        updateGpioStatus();
+                    } else {
+                        console.error("Failed to toggle GPIO:", data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error("Error toggling GPIO:", error);
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.textContent = "Toggle GPIO";
+                });
+        });
+        
+        // Camera Control - Start
+        document.getElementById('camera-test-btn').addEventListener('click', () => {
+            const startBtn = document.getElementById('camera-test-btn');
+            const statusElement = document.getElementById('camera-status');
+            
+            startBtn.disabled = true;
+            statusElement.textContent = "Starting camera...";
+            
+            fetch('/camera/test')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusElement.textContent = data.status;
+                        // WebSocket will start receiving frames
+                    } else {
+                        statusElement.textContent = "Error: " + (data.error || "Failed to start camera");
+                        console.error("Camera start error:", data.error);
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = "Error connecting to camera service";
+                    console.error("Camera fetch error:", error);
+                })
+                .finally(() => {
+                    startBtn.disabled = false;
+                });
+        });
+        
+        // Camera Control - Stop
+        document.getElementById('camera-stop-btn').addEventListener('click', () => {
+            const stopBtn = document.getElementById('camera-stop-btn');
+            const statusElement = document.getElementById('camera-status');
+            
+            stopBtn.disabled = true;
+            statusElement.textContent = "Stopping camera...";
+            
+            fetch('/camera/stop')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        statusElement.textContent = data.status;
+                        // Clear the image
+                        document.getElementById('camera-feed').src = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+                    } else {
+                        statusElement.textContent = "Error: " + (data.error || "Failed to stop camera");
+                    }
+                })
+                .catch(error => {
+                    statusElement.textContent = "Error connecting to camera service";
+                    console.error("Camera stop error:", error);
+                })
+                .finally(() => {
+                    stopBtn.disabled = false;
+                });
+        });
+        
+        // Speaker Control
+document.getElementById('speaker-check-btn').addEventListener('click', () => {
+    const checkBtn = document.getElementById('speaker-check-btn');
+    const statusElement = document.getElementById('speaker-status');
+    const audioFilesContainer = document.getElementById('audio-files-container');
+    const audioFilesList = document.getElementById('audio-files-list');
+    
+    checkBtn.disabled = true;
+    statusElement.textContent = "Checking audio devices...";
+    
+    fetch('/speaker/check')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusElement.textContent = data.message;
+                statusElement.className = 'success-message';
+                
+                // Show available audio files
+                if (data.files && data.files.length > 0) {
+                    audioFilesContainer.style.display = 'block';
+                    audioFilesList.innerHTML = '';
+                    
+                    data.files.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file;
+                        option.textContent = file;
+                        audioFilesList.appendChild(option);
+                    });
+                } else {
+                    audioFilesContainer.style.display = 'none';
+                }
+            } else {
+                statusElement.textContent = "Error: " + (data.error || "Failed to check audio");
+                statusElement.className = 'error-message';
+                audioFilesContainer.style.display = 'none';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = "Error connecting to audio service";
+            statusElement.className = 'error-message';
+            console.error("Audio check error:", error);
+        })
+        .finally(() => {
+            checkBtn.disabled = false;
+        });
+});
+
+document.getElementById('speaker-test-btn').addEventListener('click', () => {
+    const testBtn = document.getElementById('speaker-test-btn');
+    const statusElement = document.getElementById('speaker-status');
+    
+    testBtn.disabled = true;
+    statusElement.textContent = "Starting audio playback...";
+    
+    fetch('/speaker/test')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusElement.textContent = data.status;
+                statusElement.className = '';
+            } else {
+                statusElement.textContent = "Error: " + (data.error || "Failed to play audio");
+                statusElement.className = 'error-message';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = "Error connecting to audio service";
+            statusElement.className = 'error-message';
+            console.error("Audio play error:", error);
+        })
+        .finally(() => {
+            testBtn.disabled = false;
+        });
+});
+
+document.getElementById('speaker-stop-btn').addEventListener('click', () => {
+    const stopBtn = document.getElementById('speaker-stop-btn');
+    const statusElement = document.getElementById('speaker-status');
+    
+    stopBtn.disabled = true;
+    statusElement.textContent = "Stopping audio...";
+    
+    fetch('/speaker/stop')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusElement.textContent = data.status;
+                statusElement.className = '';
+            } else {
+                statusElement.textContent = "Error: " + (data.error || "Failed to stop audio");
+                statusElement.className = 'error-message';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = "Error connecting to audio service";
+            statusElement.className = 'error-message';
+            console.error("Audio stop error:", error);
+        })
+        .finally(() => {
+            stopBtn.disabled = false;
+        });
+});
+
+document.getElementById('play-selected-btn').addEventListener('click', () => {
+    const selectedFile = document.getElementById('audio-files-list').value;
+    const playBtn = document.getElementById('play-selected-btn');
+    const statusElement = document.getElementById('speaker-status');
+    
+    if (!selectedFile) {
+        statusElement.textContent = "Please select an audio file";
+        statusElement.className = 'error-message';
+        return;
+    }
+    
+    playBtn.disabled = true;
+    statusElement.textContent = `Starting playback of ${selectedFile}...`;
+    
+    fetch(`/speaker/play/${selectedFile}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                statusElement.textContent = data.status;
+                statusElement.className = '';
+            } else {
+                statusElement.textContent = "Error: " + (data.error || "Failed to play selected audio");
+                statusElement.className = 'error-message';
+            }
+        })
+        .catch(error => {
+            statusElement.textContent = "Error connecting to audio service";
+            statusElement.className = 'error-message';
+            console.error("Audio play selected error:", error);
+        })
+        .finally(() => {
+            playBtn.disabled = false;
+        });
+});
+    </script>
+</body>
+</html>

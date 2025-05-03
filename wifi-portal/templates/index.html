@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wi-Fi Configuration</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script type="text/javascript" charset="utf-8">
+        var socket;
+        document.addEventListener('DOMContentLoaded', function() {
+            // Determine the server address dynamically (you might need a more robust way)
+            var serverAddress = 'http://' + document.domain + ':' + location.port;
+            console.log('Attempting to connect to:', serverAddress);
+            socket = io.connect(serverAddress);
+
+            socket.on('connect', function() {
+                console.log('WebSocket connected!');
+            });
+
+            socket.on('ip_update', function(data) {
+                document.getElementById('ip-address').innerText = 'Current IP: ' + data.ip;
+            });
+
+            socket.on('connection_update', function(data) {
+                document.getElementById('connection-status').innerText = data.message || data.error || '';
+            });
+
+            document.getElementById('wifi-form').addEventListener('submit', function(event) {
+                event.preventDefault();
+                var ssid = document.getElementById('ssid').value;
+                var password = document.getElementById('password').value;
+                fetch('/wifi/connect', { // Assuming the Flask app is serving this page
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ ssid: ssid, password: password }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('connection-status').innerText = data.message || data.error || '';
+                    if (data.details) {
+                        console.log('Connection Details:', data.details);
+                    }
+                    // Optionally update IP display if connection changes
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    document.getElementById('connection-status').innerText = 'An error occurred.';
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <h1>Wi-Fi Configuration</h1>
+    <p id="ip-address">Connecting...</p>
+    <p id="connection-status"></p>
+    <form id="wifi-form">
+        <div>
+            <label for="ssid">SSID:</label>
+            <input type="text" id="ssid" name="ssid" placeholder="Enter Wi-Fi SSID">
+        </div>
+        <div>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" placeholder="Enter Wi-Fi Password">
+        </div>
+        <button type="submit">Connect</button>
+    </form>
+</body>
+</html>
